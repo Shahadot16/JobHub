@@ -5,7 +5,8 @@ const {
     getAllJobs,
     getJobById,
     updateJob,
-    deleteJob
+    deleteJob,
+    getMyJobs
 } = require("../controllers/jobController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -31,6 +32,17 @@ router.post(
 router.get(
     "/",
     getAllJobs
+);
+
+// =========================
+// Get My Jobs
+// Recruiter Only
+// =========================
+router.get(
+    "/my",
+    protect,
+    roleMiddleware("recruiter"),
+    getMyJobs
 );
 
 // =========================
