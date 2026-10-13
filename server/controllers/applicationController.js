@@ -4,15 +4,31 @@ const Application = require("../models/Application");
 const Job = require("../models/Job");
 
 // =========================
+// Check Application Deadline
+// =========================
+const isDeadlinePassed = (deadline) => {
+    if (!deadline) return false;
+
+    const deadlineEnd = new Date(deadline);
+
+    if (Number.isNaN(deadlineEnd.getTime())) {
+        return true;
+    }
+
+    deadlineEnd.setUTCHours(23, 59, 59, 999);
+
+    return deadlineEnd < new Date();
+};
+
+// =========================
 // Apply for a Job
 // Jobseeker Only
 // =========================
 const applyForJob = async (req, res) => {
     try {
         const { jobId, coverLetter, resume } = req.body;
-        const applicantId = req.user._id;
+        const applicantId = req.user._id || req.user.id;
 
-        // Validate Job ID
         if (!mongoose.Types.ObjectId.isValid(jobId)) {
             return res.status(400).json({
                 success: false,
@@ -20,28 +36,33 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        // Find active job
-        const job = await Job.findOne({
-            _id: jobId,
-            isActive: true
-        });
+        // Find the job, then check its deadline separately.
+        // This allows us to return a clear expired-job message.
+        const job = await Job.findById(jobId);
 
         if (!job) {
             return res.status(404).json({
                 success: false,
-                message: "Job not found or no longer active"
+                message: "Job not found"
             });
         }
 
-        // Check application deadline
-        if (job.deadline && new Date(job.deadline) < new Date()) {
+        if (!job.isActive) {
+            return res.status(400).json({
+                success: false,
+                message: "This job is no longer active"
+            });
+        }
+
+        // Reject applications after the deadline.
+        if (isDeadlinePassed(job.deadline)) {
             return res.status(400).json({
                 success: false,
                 message: "Application deadline has passed"
             });
         }
 
-        // Prevent recruiter from applying to their own job
+        // Prevent recruiter from applying to their own job.
         if (job.postedBy.toString() === applicantId.toString()) {
             return res.status(403).json({
                 success: false,
@@ -49,7 +70,7 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        // Check duplicate application
+        // Prevent duplicate applications.
         const existingApplication = await Application.findOne({
             job: jobId,
             applicant: applicantId
@@ -62,7 +83,6 @@ const applyForJob = async (req, res) => {
             });
         }
 
-        // Create application
         const application = await Application.create({
             job: jobId,
             applicant: applicantId,
@@ -76,7 +96,6 @@ const applyForJob = async (req, res) => {
             application
         });
     } catch (error) {
-        // Handle duplicate-key race condition
         if (error.code === 11000) {
             return res.status(409).json({
                 success: false,
@@ -99,10 +118,15 @@ const applyForJob = async (req, res) => {
 // =========================
 const getMyApplications = async (req, res) => {
     try {
+        const applicantId = req.user._id || req.user.id;
+
         const applications = await Application.find({
-            applicant: req.user._id
+            applicant: applicantId
         })
-            .populate("job", "title company location salary jobType deadline")
+            .populate(
+                "job",
+                "title company location salary jobType deadline isActive"
+            )
             .sort({ createdAt: -1 });
 
         return res.status(200).json({
@@ -135,10 +159,11 @@ const getJobApplications = async (req, res) => {
             });
         }
 
-        // Verify job ownership
+        const recruiterId = req.user._id || req.user.id;
+
         const job = await Job.findOne({
             _id: jobId,
-            postedBy: req.user._id
+            postedBy: recruiterId
         });
 
         if (!job) {
@@ -208,10 +233,11 @@ const updateApplicationStatus = async (req, res) => {
             });
         }
 
-        // Only the recruiter who owns the job can update its application
+        const recruiterId = req.user._id || req.user.id;
+
         const job = await Job.findOne({
             _id: application.job,
-            postedBy: req.user._id
+            postedBy: recruiterId
         });
 
         if (!job) {

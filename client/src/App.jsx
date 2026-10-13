@@ -9,6 +9,33 @@ import RecruiterDashboard from "./RecruiterDashboard.jsx";
 const API_URL = "http://localhost:5000/api/jobs";
 const APPLICATION_API_URL = "http://localhost:5000/api/applications";
 
+// Treat a deadline as valid through the end of its UTC calendar day.
+function isExpired(deadline) {
+  if (!deadline) return false;
+
+  const date = new Date(deadline);
+
+  if (Number.isNaN(date.getTime())) return true;
+
+  date.setUTCHours(23, 59, 59, 999);
+
+  return date < new Date();
+}
+
+function formatDeadline(deadline) {
+  if (!deadline) return "Not specified";
+
+  const date = new Date(deadline);
+
+  if (Number.isNaN(date.getTime())) return "Not specified";
+
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function App() {
   const [jobs, setJobs] = useState([]);
   const [search, setSearch] = useState("");
@@ -35,7 +62,7 @@ function App() {
   const [applicationMessage, setApplicationMessage] = useState("");
   const [applicationError, setApplicationError] = useState("");
 
-  // Fetch jobs from backend
+  // Fetch jobs from the backend.
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -63,7 +90,18 @@ function App() {
     fetchJobs();
   }, [fetchJobs]);
 
-  // Close the job details modal with Escape
+  // Keep the selected job synchronized with refreshed job data.
+  useEffect(() => {
+    if (!selectedJob) return;
+
+    const updatedJob = jobs.find((job) => job._id === selectedJob._id);
+
+    if (updatedJob) {
+      setSelectedJob(updatedJob);
+    }
+  }, [jobs, selectedJob?._id]);
+
+  // Close the job details modal with Escape.
   useEffect(() => {
     if (!selectedJob) return;
 
@@ -82,12 +120,19 @@ function App() {
     };
   }, [selectedJob, applying]);
 
-  // Search and location filters
+  // Filter out inactive jobs and jobs whose deadlines have passed.
+  const activeJobs = useMemo(() => {
+    return jobs.filter(
+      (job) => job.isActive !== false && !isExpired(job.deadline)
+    );
+  }, [jobs]);
+
+  // Search and location filters.
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
     const place = location.trim().toLowerCase();
 
-    return jobs.filter((job) => {
+    return activeJobs.filter((job) => {
       const searchableText = [
         job.title,
         job.company,
@@ -99,39 +144,14 @@ function App() {
         .toLowerCase();
 
       const matchesSearch = searchableText.includes(query);
+
       const matchesLocation = (job.location || "")
         .toLowerCase()
         .includes(place);
 
-      return (
-        job.isActive !== false &&
-        matchesSearch &&
-        matchesLocation
-      );
+      return matchesSearch && matchesLocation;
     });
-  }, [jobs, search, location]);
-
-  const formatDeadline = (deadline) => {
-    if (!deadline) return "Not specified";
-
-    const date = new Date(deadline);
-
-    if (Number.isNaN(date.getTime())) return "Not specified";
-
-    return date.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const isExpired = (deadline) => {
-    if (!deadline) return false;
-
-    const date = new Date(deadline);
-
-    return !Number.isNaN(date.getTime()) && date < new Date();
-  };
+  }, [activeJobs, search, location]);
 
   const openJobDetails = (job) => {
     setSelectedJob(job);
@@ -147,7 +167,7 @@ function App() {
     setApplicationError("");
   };
 
-  // Authentication
+  // Authentication.
   const handleAuthSuccess = ({ token, user }) => {
     sessionStorage.setItem("jobhubToken", token);
     sessionStorage.setItem("jobhubUser", JSON.stringify(user));
@@ -169,7 +189,7 @@ function App() {
     setApplicationError("");
   };
 
-  // Submit a job application
+  // Submit a job application.
   const handleApply = async () => {
     if (!selectedJob || applying) return;
 
@@ -189,11 +209,16 @@ function App() {
       return;
     }
 
-    if (isExpired(selectedJob.deadline)) {
+    // Check the deadline again before sending the application.
+    if (
+      selectedJob.isActive === false ||
+      isExpired(selectedJob.deadline)
+    ) {
       setApplicationError(
-        "The application deadline has passed. Applications are closed."
+        "This job is no longer accepting applications."
       );
       setApplicationMessage("");
+      await fetchJobs();
       return;
     }
 
@@ -243,7 +268,7 @@ function App() {
     }
   };
 
-  // Login screen
+  // Login screen.
   if (authScreen) {
     return (
       <AuthForm
@@ -253,11 +278,14 @@ function App() {
     );
   }
 
-  // Jobseeker applications screen
+  // Jobseeker applications screen.
   if (showMyApplications) {
     if (currentUser?.role !== "jobseeker") {
-      setShowMyApplications(false);
-      return null;
+      return (
+        <MyApplications
+          onBack={() => setShowMyApplications(false)}
+        />
+      );
     }
 
     return (
@@ -267,11 +295,15 @@ function App() {
     );
   }
 
-  // Recruiter dashboard screen
+  // Recruiter dashboard screen.
   if (showRecruiterDashboard) {
     if (currentUser?.role !== "recruiter") {
-      setShowRecruiterDashboard(false);
-      return null;
+      return (
+        <RecruiterDashboard
+          currentUser={currentUser}
+          onBack={() => setShowRecruiterDashboard(false)}
+        />
+      );
     }
 
     return (
@@ -398,23 +430,23 @@ function App() {
               <h2>Build your future</h2>
               <hr />
 
-              {jobs.length > 0 ? (
+              {activeJobs.length > 0 ? (
                 <>
                   <div className="featured-job">
                     <span className="company-icon">
-                      {(jobs[0].company || "J")
+                      {(activeJobs[0].company || "J")
                         .charAt(0)
                         .toUpperCase()}
                     </span>
 
                     <div>
-                      <strong>{jobs[0].title}</strong>
-                      <p>{jobs[0].company}</p>
+                      <strong>{activeJobs[0].title}</strong>
+                      <p>{activeJobs[0].company}</p>
                     </div>
                   </div>
 
                   <div className="skill-tags">
-                    {(jobs[0].skills || [])
+                    {(activeJobs[0].skills || [])
                       .slice(0, 3)
                       .map((skill) => (
                         <span key={skill}>{skill}</span>
@@ -425,14 +457,16 @@ function App() {
 
                   <div className="featured-footer">
                     <div>
-                      <strong>{jobs[0].salary || "Negotiable"}</strong>
+                      <strong>
+                        {activeJobs[0].salary || "Negotiable"}
+                      </strong>
                       <p>Salary</p>
                     </div>
 
                     <button
                       type="button"
                       className="primary-btn"
-                      onClick={() => openJobDetails(jobs[0])}
+                      onClick={() => openJobDetails(activeJobs[0])}
                     >
                       View details
                     </button>
@@ -511,7 +545,9 @@ function App() {
           )}
 
           {!loading && !error && filteredJobs.length === 0 && (
-            <p className="message">No jobs match your search.</p>
+            <p className="message">
+              No active jobs match your search.
+            </p>
           )}
 
           <div className="job-grid">
@@ -538,8 +574,9 @@ function App() {
                 </div>
 
                 <div className="category-tag">
-                  {(job.skills || []).slice(0, 3).join(" · ") ||
-                    "Explore this opportunity"}
+                  {(Array.isArray(job.skills) ? job.skills : [])
+                    .slice(0, 3)
+                    .join(" · ") || "Explore this opportunity"}
                 </div>
 
                 <button
@@ -638,7 +675,8 @@ function App() {
 
             <h3>Required skills</h3>
             <div className="skill-tags">
-              {(selectedJob.skills || []).length > 0 ? (
+              {Array.isArray(selectedJob.skills) &&
+              selectedJob.skills.length > 0 ? (
                 selectedJob.skills.map((skill) => (
                   <span key={skill}>{skill}</span>
                 ))
@@ -659,7 +697,8 @@ function App() {
               </p>
             )}
 
-            {isExpired(selectedJob.deadline) ? (
+            {selectedJob.isActive === false ||
+            isExpired(selectedJob.deadline) ? (
               <p className="message error">
                 The application deadline has passed. Applications are closed.
               </p>

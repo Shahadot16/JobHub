@@ -15,6 +15,26 @@ const EMPTY_JOB_FORM = {
   deadline: "",
 };
 
+function isJobExpired(deadline) {
+  if (!deadline) return false;
+
+  const date = new Date(deadline);
+  if (Number.isNaN(date.getTime())) return true;
+
+  date.setHours(23, 59, 59, 999);
+  return date < new Date();
+}
+
+function getJobStatus(job) {
+  if (!job.isActive) return "Inactive";
+
+  if (job.displayStatus === "Expired" || isJobExpired(job.deadline)) {
+    return "Expired";
+  }
+
+  return "Active";
+}
+
 function RecruiterDashboard({ currentUser, onBack }) {
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -34,9 +54,8 @@ function RecruiterDashboard({ currentUser, onBack }) {
 
   const getToken = () => sessionStorage.getItem("jobhubToken");
 
-  // =========================
-  // Fetch Recruiter's Own Jobs
-  // =========================
+  const selectedJob = jobs.find((job) => job._id === selectedJobId);
+
   const fetchJobs = useCallback(async () => {
     const token = getToken();
 
@@ -84,9 +103,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     }
   }, []);
 
-  // =========================
-  // Fetch Applications
-  // =========================
   const fetchApplications = useCallback(async () => {
     if (!selectedJobId) {
       setApplications([]);
@@ -143,9 +159,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     fetchApplications();
   }, [fetchApplications]);
 
-  // =========================
-  // Handle Job Form
-  // =========================
   const handleJobFormChange = (event) => {
     const { name, value } = event.target;
 
@@ -183,9 +196,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     setJobForm(EMPTY_JOB_FORM);
   };
 
-  // =========================
-  // Update Job
-  // =========================
   const saveJobChanges = async (event) => {
     event.preventDefault();
 
@@ -241,14 +251,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
         throw new Error(data.message || "Failed to update the job.");
       }
 
-      if (data.job) {
-        setJobs((previous) =>
-          previous.map((job) =>
-            job._id === data.job._id ? data.job : job
-          )
-        );
-      }
-
       setEditingJob(false);
       setNotice("Job updated successfully.");
       await fetchJobs();
@@ -259,9 +261,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     }
   };
 
-  // =========================
-  // Delete Job
-  // =========================
   const deleteSelectedJob = async () => {
     if (!selectedJob || deletingJob) return;
 
@@ -319,9 +318,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     }
   };
 
-  // =========================
-  // Update Application Status
-  // =========================
   const updateStatus = async (applicationId, status) => {
     const token = getToken();
 
@@ -365,9 +361,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
     }
   };
 
-  // =========================
-  // Helpers
-  // =========================
   const formatDate = (value) => {
     if (!value) return "Not specified";
 
@@ -381,8 +374,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
       year: "numeric",
     });
   };
-
-  const selectedJob = jobs.find((job) => job._id === selectedJobId);
 
   if (currentUser?.role !== "recruiter") {
     return (
@@ -422,7 +413,12 @@ function RecruiterDashboard({ currentUser, onBack }) {
           <button
             type="button"
             className="primary-btn"
-            disabled={loadingJobs || loadingApplications || savingJob || deletingJob}
+            disabled={
+              loadingJobs ||
+              loadingApplications ||
+              savingJob ||
+              deletingJob
+            }
             onClick={async () => {
               setNotice("");
               await fetchJobs();
@@ -473,8 +469,10 @@ function RecruiterDashboard({ currentUser, onBack }) {
           </div>
         ) : (
           <>
-            {/* My Jobs */}
-            <section className="application-card" style={{ marginBottom: 24 }}>
+            <section
+              className="application-card"
+              style={{ marginBottom: 24 }}
+            >
               <h2>My Jobs</h2>
               <p>Select one of your jobs to manage it and review applicants.</p>
 
@@ -524,8 +522,7 @@ function RecruiterDashboard({ currentUser, onBack }) {
                     {formatDate(selectedJob.deadline)}
                   </p>
                   <p>
-                    <strong>Status:</strong>{" "}
-                    {selectedJob.isActive ? "Active" : "Inactive"}
+                    <strong>Status:</strong> {getJobStatus(selectedJob)}
                   </p>
                 </div>
 
@@ -634,7 +631,9 @@ function RecruiterDashboard({ currentUser, onBack }) {
                       placeholder="JavaScript, Node.js, MongoDB"
                     />
 
-                    <label htmlFor="edit-deadline">Application deadline</label>
+                    <label htmlFor="edit-deadline">
+                      Application deadline
+                    </label>
                     <input
                       id="edit-deadline"
                       type="date"
@@ -674,7 +673,6 @@ function RecruiterDashboard({ currentUser, onBack }) {
               </section>
             )}
 
-            {/* Applications */}
             <section>
               <div className="applications-heading">
                 <h2>Applications for this job</h2>
